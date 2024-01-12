@@ -1,0 +1,13 @@
+#!/usr/bin/env php
+<?php
+
+use ReactDrupal\App;
+
+$autoloader = $GLOBALS['_composer_autoload_path'] ??
+  file_exists(__DIR__ . '/../vendor/autoload.php')
+    ? require __DIR__ . '/../vendor/autoload.php'
+    : require __DIR__ . '/../../../autoload.php';
+
+App::create($autoloader)
+  ->initKernel()
+  ->runHttpServer();
