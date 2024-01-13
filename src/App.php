@@ -71,16 +71,20 @@ class App {
     $http = new HttpServer(
       new SessionMiddleware(new ArrayCache()),
       function (ServerRequestInterface $serverRequest) {
-      $request = $this->httpFoundationFactory->createRequest($serverRequest);
-      // This sets things up, esp loadLegacyIncludes().
-      $this->kernel->preHandle($request);
+        $request = $this->httpFoundationFactory->createRequest($serverRequest);
+        // This sets things up, esp loadLegacyIncludes().
+        $this->kernel->preHandle($request);
 
-      $response = $this->kernel->getContainer()
-        ->get('http_kernel')
-        ->handle($request, HttpKernelInterface::MAIN_REQUEST, TRUE);
+        $response = $this->kernel->getContainer()
+          ->get('http_kernel')
+          ->handle($request, HttpKernelInterface::MAIN_REQUEST, TRUE);
+        $response->prepare($request);
+        // @todo Use|move to finally promise or end event.
+        $this->kernel->terminate($request, $response);
 
-      return $this->psrHttpFactory->createResponse($response);
-    });
+        return $this->psrHttpFactory->createResponse($response);
+      },
+    );
 
     $socket = new SocketServer('0.0.0.0:8080');
     $http->listen($socket);

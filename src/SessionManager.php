@@ -31,4 +31,35 @@ class SessionManager extends DrupalSessionManager {
     }
   }
 
+  /**
+   * {@inheritdoc}
+   */
+  public function start(): bool {
+    $request = $this->requestStack->getCurrentRequest();
+    $this->setOptions($this->sessionConfiguration->getOptions($request));
+
+    if ($this->sessionConfiguration->hasSession($request)) {
+      // If a session cookie exists, initialize the session. Otherwise the
+      // session is only started on demand in save(), making
+      // anonymous users not use a session cookie unless something is stored in
+      // $_SESSION. This allows HTTP proxies to cache anonymous page views.
+      $result = $this->startNow();
+    }
+
+    if (empty($result)) {
+      // Initialize the session global and attach the Symfony session bags.
+      $_SESSION = [];
+      $this->loadSession();
+
+      // NativeSessionStorage::loadSession() sets started to TRUE, reset it to
+      // FALSE here.
+      $this->started = FALSE;
+      $this->startedLazy = TRUE;
+
+      $result = FALSE;
+    }
+
+    return $result;
+  }
+
 }
