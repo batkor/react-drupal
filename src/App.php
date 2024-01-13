@@ -2,6 +2,7 @@
 
 namespace ReactDrupal;
 
+use React\Cache\ArrayCache;
 use Composer\Autoload\ClassLoader;
 use Drupal\Core\DrupalKernel;
 use Drupal\Core\Site\Settings;
@@ -9,8 +10,11 @@ use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\HttpServer;
 use React\Socket\SocketServer;
+use ReactDrupal\Middleware\SessionMiddleware;
+use ReactDrupal\ServiceProvider\ReactDrupalServiceProvider;
 use Symfony\Bridge\PsrHttpMessage\Factory\HttpFoundationFactory;
 use Symfony\Bridge\PsrHttpMessage\Factory\PsrHttpFactory;
+use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 
 /**
@@ -52,21 +56,22 @@ class App {
   }
 
   public function initKernel(): self {
+    $GLOBALS['conf']['container_service_providers'][] = ReactDrupalServiceProvider::class;
+
+    chdir($this->kernel->getAppRoot());
     $this->kernel::bootEnvironment();
     $this->kernel->setSitePath('sites/default');
     Settings::initialize($this->kernel->getAppRoot(), $this->kernel->getSitePath(), $this->classLoader);
     $this->kernel->boot();
-    chdir($this->kernel->getAppRoot());
 
     return $this;
   }
 
   public function runHttpServer(): void {
-    $http = new HttpServer(function (ServerRequestInterface $serverRequest) {
+    $http = new HttpServer(
+      new SessionMiddleware(new ArrayCache()),
+      function (ServerRequestInterface $serverRequest) {
       $request = $this->httpFoundationFactory->createRequest($serverRequest);
-      $this->kernel->getContainer()
-        ->get('request_stack')
-        ->push($request);
       // This sets things up, esp loadLegacyIncludes().
       $this->kernel->preHandle($request);
 
