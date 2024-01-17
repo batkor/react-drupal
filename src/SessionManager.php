@@ -2,64 +2,125 @@
 
 namespace ReactDrupal;
 
-use \Drupal\Core\Session\SessionManager as DrupalSessionManager;
+use Compwright\PhpSession\Factory;
+use Compwright\PhpSession\Manager;
+use Drupal\Core\Database\Connection;
+use Drupal\Core\Session\SessionConfigurationInterface;
+use Drupal\Core\Session\SessionManagerInterface;
+use Drupal\Core\Session\WriteSafeSessionHandlerInterface;
+use ReactDrupal\Session\SessionFileCacheStorage;
+use Symfony\Component\HttpFoundation\RequestStack;
+use Symfony\Component\HttpFoundation\Session\SessionBagInterface;
+use Symfony\Component\HttpFoundation\Session\Storage\MetadataBag;
+use Drupal\Core\Session\MetadataBag as DrupalMetadataBag;
 
-class SessionManager extends DrupalSessionManager {
+class SessionManager implements SessionManagerInterface {
 
-  public function setOptions(array $options) {
-    if (\PHP_SESSION_ACTIVE === session_status()) {
-      return;
-    }
-
-    $validOptions = array_flip([
-      'cache_expire', 'cache_limiter', 'cookie_domain', 'cookie_httponly',
-      'cookie_lifetime', 'cookie_path', 'cookie_secure', 'cookie_samesite',
-      'gc_divisor', 'gc_maxlifetime', 'gc_probability',
-      'lazy_write', 'name', 'referer_check',
-      'serialize_handler', 'use_strict_mode', 'use_cookies',
-      'use_only_cookies', 'use_trans_sid',
-      'sid_length', 'sid_bits_per_character', 'trans_sid_hosts', 'trans_sid_tags',
-    ]);
-
-    foreach ($options as $key => $value) {
-      if (isset($validOptions[$key])) {
-        if ('cookie_secure' === $key && 'auto' === $value) {
-          continue;
-        }
-        ini_set('session.'.$key, $value);
-      }
-    }
-  }
+  protected Manager $manager;
 
   /**
-   * {@inheritdoc}
+   * The write safe session handler.
    */
-  public function start(): bool {
-    $request = $this->requestStack->getCurrentRequest();
-    $this->setOptions($this->sessionConfiguration->getOptions($request));
+  protected WriteSafeSessionHandlerInterface $writeSafeHandler;
 
-    if ($this->sessionConfiguration->hasSession($request)) {
-      // If a session cookie exists, initialize the session. Otherwise the
-      // session is only started on demand in save(), making
-      // anonymous users not use a session cookie unless something is stored in
-      // $_SESSION. This allows HTTP proxies to cache anonymous page views.
-      $result = $this->startNow();
-    }
+  /**
+   * @var \Symfony\Component\HttpFoundation\Session\SessionBagInterface[]
+   */
+  protected array $bags;
 
-    if (empty($result)) {
-      // Initialize the session global and attach the Symfony session bags.
-      $_SESSION = [];
-      $this->loadSession();
-
-      // NativeSessionStorage::loadSession() sets started to TRUE, reset it to
-      // FALSE here.
-      $this->started = FALSE;
-      $this->startedLazy = TRUE;
-
-      $result = FALSE;
-    }
-
-    return $result;
+  public function __construct(
+    protected RequestStack $requestStack,
+    protected Connection $connection,
+    protected SessionConfigurationInterface $sessionConfiguration,
+    protected DrupalMetadataBag $metadataBag
+  ) {
+    $sessionFactory = new Factory();
+    $this->manager = $sessionFactory
+      ->psr16Session(new SessionFileCacheStorage(sys_get_temp_dir(), 'react-drupal'), [
+        'name' => 'react_drupal',
+        'sid_length' => 48,
+        'sid_bits_per_character' => 6,
+      ]);
   }
+
+  public function delete($uid) {
+    $this->connection->delete('sessions')
+      ->condition('uid', $uid)
+      ->execute();
+  }
+
+  public function destroy() {
+    $this->manager->destroy();
+  }
+
+  public function setWriteSafeHandler(WriteSafeSessionHandlerInterface $handler): void {
+    $this->writeSafeHandler = $handler;
+  }
+
+  public function start(): bool {
+    if ($this->sessionConfiguration->hasSession($this->requestStack->getCurrentRequest())) {
+      $this->manager->id($this->getName());
+      $this->manager->start();
+
+      return TRUE;
+    }
+
+    return FALSE;
+  }
+
+  public function isStarted(): bool {
+    return !!$this->manager->status();
+  }
+
+  public function getId(): string {
+    return $this->manager->id($this->getName());
+  }
+
+  public function setId(string $id) {
+    $this->manager->id($id);
+  }
+
+  public function getName(): string {
+    $options = $this->sessionConfiguration->getOptions($this->requestStack->getCurrentRequest());
+
+    return $options['name'];
+  }
+
+  public function setName(string $name) {
+    $x=0;
+  }
+
+  public function regenerate(bool $destroy = FALSE, int $lifetime = NULL): bool {
+    if (!$this->isStarted()) {
+      $this->start();
+    }
+
+    if ($destroy) {
+      $this->manager->regenerate_id(TRUE);
+    }
+
+    return TRUE;
+  }
+
+  public function save() {
+    $this->manager->write_close();
+  }
+
+  public function clear() {
+
+  }
+
+  public function getBag(string $name): SessionBagInterface {
+    return $this->bags[$name];
+  }
+
+  public function registerBag(SessionBagInterface $bag): void {
+    $this->bags[$bag->getName()] = $bag;
+  }
+
+  public function getMetadataBag(): MetadataBag {
+    return $this->metadataBag;
+  }
+
 
 }

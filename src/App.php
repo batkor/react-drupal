@@ -10,11 +10,14 @@ use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\HttpServer;
 use React\Socket\SocketServer;
-use ReactDrupal\Middleware\SessionMiddleware;
+use ReactDrupal\Middleware\ReactDrupalMiddleware;
 use ReactDrupal\ServiceProvider\ReactDrupalServiceProvider;
+use ReactDrupal\Session\SessionFileCacheStorage;
 use Symfony\Bridge\PsrHttpMessage\Factory\HttpFoundationFactory;
 use Symfony\Bridge\PsrHttpMessage\Factory\PsrHttpFactory;
 use Symfony\Component\DependencyInjection\Definition;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 
 /**
@@ -69,20 +72,31 @@ class App {
 
   public function runHttpServer(): void {
     $http = new HttpServer(
-      new SessionMiddleware(new ArrayCache()),
+//      new SessionMiddleware(new SessionFileCacheStorage(sys_get_temp_dir(), 'react-drupal')),
       function (ServerRequestInterface $serverRequest) {
-        $request = $this->httpFoundationFactory->createRequest($serverRequest);
-        // This sets things up, esp loadLegacyIncludes().
-        $this->kernel->preHandle($request);
+        try {
+          $request = $this->httpFoundationFactory->createRequest($serverRequest);
+          $request->attributes->set('server_request', $serverRequest);
+          // This sets things up, esp loadLegacyIncludes().
+          $this->kernel->preHandle($request);
 
-        $response = $this->kernel->getContainer()
-          ->get('http_kernel')
-          ->handle($request, HttpKernelInterface::MAIN_REQUEST, TRUE);
-        $response->prepare($request);
-        // @todo Use|move to finally promise or end event.
-        $this->kernel->terminate($request, $response);
+          $response = $this->kernel->getContainer()
+            ->get('http_kernel')
+            ->handle($request, HttpKernelInterface::MAIN_REQUEST, TRUE);
+          $response->prepare($request);
+        }
+        catch (\Exception $e) {
+          if ($e instanceof HttpExceptionInterface) {
+            $response = new Response($e->getMessage(), $e->getStatusCode());
+            $response->headers->add($e->getHeaders());
+          }
+        }
+        finally {
+          // @todo Use|move to finally promise or end event.
+          $this->kernel->terminate($request, $response);
 
-        return $this->psrHttpFactory->createResponse($response);
+          return $this->psrHttpFactory->createResponse($response);
+        }
       },
     );
 
@@ -90,11 +104,11 @@ class App {
     $http->listen($socket);
 
     $http->on('error', function (\Exception $e) {
-      echo 'Error: ' . $e->getMessage() . PHP_EOL;
+      echo '$http Error: ' . $e->getMessage() . PHP_EOL;
     });
 
     $socket->on('error', function (\Exception $e) {
-      echo 'Error: ' . $e->getMessage() . PHP_EOL;
+      echo '$socket Error: ' . $e->getMessage() . PHP_EOL;
     });
 
     echo "Server running at http://0.0.0.0:8080" . PHP_EOL;
