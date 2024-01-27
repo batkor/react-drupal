@@ -2,6 +2,7 @@
 
 namespace ReactDrupal;
 
+use Compwright\PhpSession\Manager;
 use React\Cache\ArrayCache;
 use Composer\Autoload\ClassLoader;
 use Drupal\Core\DrupalKernel;
@@ -16,6 +17,7 @@ use ReactDrupal\Session\SessionFileCacheStorage;
 use Symfony\Bridge\PsrHttpMessage\Factory\HttpFoundationFactory;
 use Symfony\Bridge\PsrHttpMessage\Factory\PsrHttpFactory;
 use Symfony\Component\DependencyInjection\Definition;
+use Symfony\Component\HttpFoundation\Cookie;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
@@ -55,7 +57,7 @@ class App {
   public static function create(ClassLoader $classLoader): static {
     $psr17Factory = new Psr17Factory();
 
-    return new static($classLoader, new HttpFoundationFactory(), new DrupalKernel('prod', $classLoader, FALSE), new PsrHttpFactory($psr17Factory, $psr17Factory, $psr17Factory, $psr17Factory));
+    return new static($classLoader, new HttpFoundationFactory(), new DrupalKernel('prod', $classLoader, TRUE), new PsrHttpFactory($psr17Factory, $psr17Factory, $psr17Factory, $psr17Factory));
   }
 
   public function initKernel(): self {
@@ -85,7 +87,7 @@ class App {
             ->handle($request, HttpKernelInterface::MAIN_REQUEST, TRUE);
           $response->prepare($request);
         }
-        catch (\Exception $e) {
+        catch (\Throwable $e) {
           if ($e instanceof HttpExceptionInterface) {
             $response = new Response($e->getMessage(), $e->getStatusCode());
             $response->headers->add($e->getHeaders());
@@ -94,6 +96,13 @@ class App {
         finally {
           // @todo Use|move to finally promise or end event.
           $this->kernel->terminate($request, $response);
+          /** @var \ReactDrupal\SessionManager $manager */
+          $manager = $this
+            ->kernel
+            ->getContainer()
+            ->get('session_manager');
+          $response->headers->setCookie($manager->buildCookie());
+          $manager->save();
 
           return $this->psrHttpFactory->createResponse($response);
         }

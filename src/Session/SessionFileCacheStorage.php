@@ -14,7 +14,8 @@ class SessionFileCacheStorage implements CacheInterface {
   ) {}
 
   protected function getData(): array {
-    $this->data = unserialize(file_get_contents($this->getCacheFilePath())) ?? [];
+    $data = file_get_contents($this->getCacheFilePath());
+    $this->data = $data ? unserialize($data) : [];
 
     return $this->data;
   }

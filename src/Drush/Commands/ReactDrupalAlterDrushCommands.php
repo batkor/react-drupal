@@ -2,8 +2,6 @@
 
 namespace ReactDrupal\Drush\Commands;
 
-use Consolidation\AnnotatedCommand\CommandData;
-use Consolidation\AnnotatedCommand\Hooks\HookManager;
 use Drush\Commands\DrushCommands;
 use ReactDrupal\ServiceProvider\ReactDrupalServiceProvider;
 
